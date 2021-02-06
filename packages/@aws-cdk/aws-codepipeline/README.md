@@ -98,6 +98,87 @@ or you can use the `IStage.addAction()` method to mutate an existing Stage:
 sourceStage.addAction(someAction);
 ```
 
+### Custom Actions
+
+To use a custom action that exists in your AWS Account you must create a
+new class that implmenets the `IAction` interface. 
+
+Here is an example for a build stage action:
+
+```ts
+import * as cpl from '@aws-cdk/aws-codepipeline';
+import * as cdk from '@aws-cdk/core';
+import * as events from '@aws-cdk/aws-events';
+
+export class CustomBuildAction implements cpl.IAction {
+    readonly actionProperties: cpl.ActionProperties;
+    private _pipeline: cpl.IPipeline;
+    private _stage: cpl.IStage;
+    private _scope: cdk.Construct;
+
+    constructor(props: cpl.ActionProperties) {
+        this.actionProperties = {
+            // Adjust the bounds as supported by the custom action
+            artifactBounds: { minInputs: 0, maxInputs: 1, minOutputs: 0, maxOutputs: 1 },
+            actionName: props.actionName,
+            // Change the category to match the custom action
+            category: cpl.ActionCategory.BUILD,
+            inputs: props.inputs,
+            outputs: props.outputs,
+            owner: 'Custom',
+            provider: props.providerName,
+            version: props.providerVersion,
+        }
+    }
+
+    bind(scope: cdk.Construct, stage: cpl.IStage, options: cpl.ActionBindOptions): cpl.ActionConfig {
+        this._pipeline = stage.pipeline;
+        this._stage = stage;
+        this._scope = scope;
+        return {
+            // The configuration expected by the custom action.
+            configuration: {
+                ...
+            }
+        };
+    }
+
+    onStateChange(name: string, target?: events.IRuleTarget, options?: events.RuleProps): events.Rule {
+        const rule = new events.Rule(this.scope, name, options);
+        rule.addTarget(target);
+        rule.addEventPattern({
+            detailType: ['CodePipeline Action Execution State Change'],
+            source: ['aws.codepipeline'],
+            resources: [this.pipeline.pipelineArn],
+            detail: {
+                stage: [this.stage.stageName],
+                action: [this.actionProperties.actionName],
+            },
+        });
+        return rule;
+    }
+
+    get pipeline() {
+        if (this._pipeline) {
+            return this._pipeline;
+        }
+        throw new Error('Action must be added to a stage that is part of a pipeline before using onStateChange');
+    }
+    get stage() {
+        if (this._stage) {
+            return this._stage;
+        }
+        throw new Error('Action must be added to a stage that is part of a pipeline before using onStateChange');
+    }
+    get scope() {
+        if (this._scope) {
+            return this._scope;
+        }
+        throw new Error('Action must be added to a stage that is part of a pipeline first');
+    }
+}
+```
+
 ## Cross-account CodePipelines
 
 > Cross-account Pipeline actions require that the Pipeline has *not* been
